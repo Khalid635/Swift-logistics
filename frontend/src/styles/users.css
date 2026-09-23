@@ -1,0 +1,72 @@
+/* Tabs above the dashboard content (admin only) */
+.dash-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.dash-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  font-size: 15px;
+  font-weight: 600;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.dash-tab:hover {
+  color: #111827;
+}
+
+.dash-tab.active {
+  color: #2563eb;
+  border-bottom-color: #2563eb;
+}
+
+.tab-badge {
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* Account status badges in the users table */
+.user-status {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.user-status-pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.user-status-active {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.user-status-blocked {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.row-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
