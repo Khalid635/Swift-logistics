@@ -38,14 +38,14 @@ backend/
 
 ## 🌐 Live Demo
 
-https://swift-logistics-frontend.vercel.app
+[**Open Swift Logistics**](https://swift-logistics-frontend.vercel.app)
 
 ## 🔗 Backend API
 
-https://swift-logistics-api.onrender.com
+[**View API**](https://swift-logistics-api.onrender.com)
 
 ## 👨‍💻 Author
 
-Khalid Bin Masud
+**Khalid Bin Masud**
 
-GitHub: https://github.com/Khalid635
+[GitHub](https://github.com/Khalid635) · [LinkedIn](https://linkedin.com/in/khalid-bin-masud-817a913b9)
