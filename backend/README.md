@@ -23,7 +23,7 @@ FastAPI backend for **SwiftLogistics**, a parcel booking and tracking system wit
 
 ## Tech stack
 
-FastAPI, SQLAlchemy 2, Pydantic 2, python-jose (JWT), passlib + bcrypt, SQLite for local development and PostgreSQL in production.
+FastAPI, SQLAlchemy 2, Pydantic 2, PyJWT (JWT), bcrypt, slowapi (rate limiting), SQLite for local development and PostgreSQL in production.
 
 ## API overview
 
@@ -50,7 +50,7 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-Open http://127.0.0.1:8000/docs. Without any environment variables the app uses a local SQLite file (`logistics.db`) and creates a local-only admin account `admin@swiftlogistics.com` / `admin1234`. The live site uses different credentials.
+Open http://127.0.0.1:8000/docs. Without any environment variables the app uses a local SQLite file (`logistics.db`). You must set `SECRET_KEY`, `ADMIN_EMAIL` and `ADMIN_PASSWORD` (see below) — for local-only development you may instead set `ALLOW_INSECURE_DEV_KEY=1` to use insecure built-in defaults. Never set that flag on a server.
 
 ## Environment variables
 
@@ -60,6 +60,7 @@ Open http://127.0.0.1:8000/docs. Without any environment variables the app uses 
 | `SECRET_KEY` | Secret used to sign login tokens |
 | `ADMIN_EMAIL` | Email of the admin account |
 | `ADMIN_PASSWORD` | Password of the admin account |
+| `ALLOW_INSECURE_DEV_KEY` | Set to `1` for local development only: allows insecure built-in `SECRET_KEY`/admin defaults. Never set on a server. |
 | `ALLOWED_ORIGINS` | Comma-separated list of frontend addresses allowed by CORS |
 
 ## Deployment

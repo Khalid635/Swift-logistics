@@ -22,7 +22,7 @@ Full-stack parcel booking and delivery tracking platform.
 ## 🛠️ Tech stack
 
 Frontend: React 19, Tailwind CSS 3, Axios (deployed on Vercel)
-Backend: FastAPI, SQLAlchemy 2, Pydantic 2, python-jose (JWT), PostgreSQL in production / SQLite locally (deployed on Render)
+Backend: FastAPI, SQLAlchemy 2, Pydantic 2, PyJWT (JWT), PostgreSQL in production / SQLite locally (deployed on Render)
 
 ## 📁 Project structure
 
@@ -43,7 +43,7 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-Open http://127.0.0.1:8000/docs. Without environment variables the app uses a local SQLite file (`logistics.db`) and creates a local-only admin account (see `backend/README.md`).
+Open http://127.0.0.1:8000/docs. Without environment variables the app uses a local SQLite file (`logistics.db`); set `SECRET_KEY`, `ADMIN_EMAIL` and `ADMIN_PASSWORD` first (see `backend/README.md`).
 
 Frontend:
 

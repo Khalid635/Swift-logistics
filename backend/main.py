@@ -1,12 +1,19 @@
+import logging
 import os
 import uuid
 from math import ceil
 from typing import Literal, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.util import get_remote_address
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, selectinload
 
 import models
 import schemas
@@ -42,17 +49,40 @@ SORTABLE_COLUMNS = {
 }
 
 
+logger = logging.getLogger(__name__)
+
+
 def seed_admin() -> None:
     """Make sure the one and only admin account exists and matches the
     ADMIN_EMAIL / ADMIN_PASSWORD settings.
 
-    Locally the defaults below are used. On the live server, set the
-    ADMIN_EMAIL and ADMIN_PASSWORD environment variables to real values.
-    Because this runs on every start, changing ADMIN_PASSWORD and restarting
-    the server changes the admin's password.
+    Both variables are required. There are deliberately no built-in
+    defaults: a deploy that forgets them must fail loudly instead of
+    shipping a publicly known admin login. For local-only development,
+    ALLOW_INSECURE_DEV_KEY=1 enables insecure built-in defaults (never
+    set it on a server). Because this runs on every start, changing
+    ADMIN_PASSWORD and restarting the server changes the admin's password.
     """
-    email = os.getenv("ADMIN_EMAIL", "admin@swiftlogistics.com").strip().lower()
-    password = os.getenv("ADMIN_PASSWORD", "admin1234")
+    email = os.getenv("ADMIN_EMAIL")
+    password = os.getenv("ADMIN_PASSWORD")
+    if not email or not password:
+        if os.getenv("ALLOW_INSECURE_DEV_KEY") == "1":
+            email = (email or "admin@swiftlogistics.com").strip().lower()
+            password = password or "admin1234"
+            logger.warning(
+                "ADMIN_EMAIL/ADMIN_PASSWORD are not set; using insecure local "
+                "dev admin credentials. Never set ALLOW_INSECURE_DEV_KEY=1 "
+                "on a server."
+            )
+        else:
+            raise RuntimeError(
+                "ADMIN_EMAIL and ADMIN_PASSWORD environment variables are "
+                "required. Set them to real values (and, for local "
+                "development only, ALLOW_INSECURE_DEV_KEY=1 to use "
+                "insecure built-in defaults)."
+            )
+    else:
+        email = email.strip().lower()
 
     with Session(engine) as db:
         admin = db.query(models.User).filter(models.User.role == "admin").first()
@@ -83,6 +113,22 @@ def seed_admin() -> None:
 seed_admin()
 
 app = FastAPI(title="SwiftLogistics API", version="3.0.0")
+
+# Rate limiting: brute-force protection for login/signup and enumeration
+# protection for the public tracking endpoint. Limits are per client IP.
+limiter = Limiter(key_func=get_remote_address, default_limits=[])
+
+
+def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Too many requests. Please try again later."},
+    )
+
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 # Only the React dev server may call this API from a browser.
 ALLOWED_ORIGINS = [
@@ -141,7 +187,7 @@ def require_admin(
 
 def generate_tracking_id(db: Session) -> str:
     for _ in range(10):
-        tracking_id = f"TRK-{uuid.uuid4().hex[:6].upper()}"
+        tracking_id = f"TRK-{uuid.uuid4().hex[:12].upper()}"
         taken = (
             db.query(models.Parcel.id)
             .filter(models.Parcel.tracking_id == tracking_id)
@@ -163,7 +209,11 @@ def scope_parcels(query, user: models.User):
 
 
 def get_parcel_or_404(db: Session, parcel_id: int, user: models.User) -> models.Parcel:
-    query = db.query(models.Parcel).filter(models.Parcel.id == parcel_id)
+    query = (
+        db.query(models.Parcel)
+        .options(selectinload(models.Parcel.creator))
+        .filter(models.Parcel.id == parcel_id)
+    )
     parcel = scope_parcels(query, user).first()
     if not parcel:
         # Same answer whether it doesn't exist or belongs to someone else
@@ -208,7 +258,10 @@ def health():
     response_model=schemas.UserResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def signup(user: schemas.UserCreate, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def signup(
+    request: Request, user: schemas.UserCreate, db: Session = Depends(get_db)
+):
     existing = db.query(models.User).filter(models.User.email == user.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -223,13 +276,24 @@ def signup(user: schemas.UserCreate, db: Session = Depends(get_db)):
         status="pending",
     )
     db.add(new_user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Two signups with the same email raced each other; the unique
+        # constraint is the safety net, so answer 400 instead of 500.
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Email already registered")
     db.refresh(new_user)
     return new_user
 
 
 @app.post("/api/auth/login")
-def login(credentials: schemas.UserLogin, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def login(
+    request: Request,
+    credentials: schemas.UserLogin,
+    db: Session = Depends(get_db),
+):
     email = credentials.email.strip().lower()
     user = db.query(models.User).filter(models.User.email == email).first()
 
@@ -375,7 +439,10 @@ def delete_user(
 # ---------------------------------------------------------------------------
 
 @app.get("/api/track/{tracking_id}", response_model=schemas.TrackingResponse)
-def track_parcel(tracking_id: str, db: Session = Depends(get_db)):
+@limiter.limit("30/minute")
+def track_parcel(
+    request: Request, tracking_id: str, db: Session = Depends(get_db)
+):
     """Anyone with a tracking ID can see the status and the town, never names."""
     parcel = (
         db.query(models.Parcel)
@@ -424,7 +491,12 @@ def get_parcels(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_approved_user),
 ):
-    query = scope_parcels(db.query(models.Parcel), current_user)
+    # Eager-load the creator so serializing created_by_email doesn't
+    # fire one extra query per row (N+1).
+    query = scope_parcels(
+        db.query(models.Parcel).options(selectinload(models.Parcel.creator)),
+        current_user,
+    )
 
     if search and search.strip():
         pattern = f"%{search.strip()}%"
@@ -502,7 +574,14 @@ def create_parcel(
         **data,
     )
     db.add(new_parcel)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Extremely unlikely with 12-char IDs, but a collision must not 500.
+        db.rollback()
+        raise HTTPException(
+            status_code=400, detail="Could not create parcel. Please try again."
+        )
     db.refresh(new_parcel)
     return new_parcel
 
